@@ -1,0 +1,111 @@
+---
+title: "Fake Data Tidymodel"
+author: "Xuhao Dong"
+date: "3/3/2021"
+output: html_document
+---
+
+
+## Introduction
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(here)
+library(rpart.plot)
+d <- read_tsv("Ajeckmann11/nba.txt")
+
+```
+
+``` {r relevel, echo=FALSE}
+knitr::opts_chunk$set(error = TRUE)
+
+## fix a data issue
+d <- d %>% 
+  mutate(hwp = win_p*100)
+
+d <- d %>%
+  mutate(time_fct = as.factor(as.character(time)))
+
+## Set levels of our categorical variables
+d <- d %>% 
+  mutate(conf=fct_relevel(conf, c("conference","Non-Conference","Rivalry")),
+         weekday = fct_relevel(weekday, c("M","Tu","W","Th","Fr","Sa","Su")),
+         time_fct = fct_relevel(time_fct,c("14:00:00","17:00:00","19:00:00")),
+         opp_win_p = fct_relevel(opp_win_p, c("Less than 40%", "40% - 60%","More than 60%")))
+
+'nba_split %>% 
+  training() %>% 
+  glimpse()'
+
+```
+
+``` {r model}
+lm.test <- lm(attendance~weekday + conf +opp_win_p + opp_all_stars + hwp + national_tv + time_fct,d)
+```
+
+## Tidymodel
+```{r basic}
+nba.model <- linear_reg() %>% 
+  set_engine("lm")
+
+nba.fit <- nba.model %>% 
+  fit(attendance~weekday + conf +opp_win_p + opp_all_stars + hwp + national_tv + time_fct, d)
+
+tidy(nba.fit)
+
+anova(nba.fit$fit)
+  
+```
+
+```{r medium}
+set.seed(20210328)
+
+nba.split <- initial_split(d)
+d.train <- training(nba.split)
+d.test <- testing(nba.split)
+
+nba.fit <- nba.model %>% 
+  fit(attendance~weekday + conf +opp_win_p + opp_all_stars + hwp + national_tv + time_fct, data=d.train)
+```
+
+``` {r predict}
+
+predict(nba.fit,d.test)
+
+d.test <- d.test %>% 
+  bind_cols(predict(nba.fit, d.test)) %>% 
+  rename(pred_lm = .pred)
+
+ggplot(d.test,
+       aes(x=attendance,y=pred_lm))+
+  geom_point()+
+  geom_abline(slope = 1,intercept = 0)+
+  theme_minimal()
+
+metrics(d.test,truth=attendance,estimate=pred_lm)
+
+```
+
+## Tree
+``` {r part}
+nba.model.tree <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+nba.fit.tree <- nba.model.tree %>% 
+  fit(attendance~weekday + conf +opp_win_p + opp_all_stars + hwp + national_tv + time_fct, d)
+
+d.test <- d.test %>% 
+  bind_cols(predict(nba.fit.tree, d.test)) %>% 
+  rename(pred_tree = .pred)
+
+metrics(d.test,truth = attendance,estimate = pred_tree)
+
+rpart.plot(nba.fit.tree$fit)
+```
+
+Result: 78.89% of all attendance can be explains by weekday, conference, opponent win percentage, number of all stars and home team win percentage, natational tv game, and time of the game in the response variable around its mean. With an absolute fit value rmse of 1524.73, and mean absolute error of 1208.78. The fit is the same as the previous assignment. Therefore, it's an overall good fit. 
+
