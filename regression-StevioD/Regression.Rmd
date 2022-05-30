@@ -1,0 +1,170 @@
+---
+title: "Regression Modeling"
+author: "Xuhao Dong"
+date: "4/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(recipes)
+library(dplyr)
+library(tidymodels)
+library(here)
+library(rpart.plot)
+library(xgboost)
+d <- read_tsv("subaru_data.txt")
+d1 <- d %>% 
+    mutate(price=as.numeric(price),
+        model = as.factor(model),
+        odometer = as.numeric(odometer))
+```
+
+```{r cleanup, include=FALSE}
+summary(d1$model)
+is.na(d1$year) <- d1$year > 2017
+is.na(d1$odometer) <- d1$odometer > 300000
+is.na(d1$odometer)<- d1$odometer < 100
+is.na(d1$price) <- d1$price >40000
+is.na(d1$price) <- d1$price <500
+
+is.na(d1$model) <- d1$model=="baja-outback"
+is.na(d1$model) <- d1$model=="brz-sti "
+is.na(d1$model) <- d1$model=="forester-impreza-legacy-outback-wrx-xt "
+is.na(d1$model) <- d1$model=="forester-outback  "
+is.na(d1$model) <- d1$model=="forester-sti"
+is.na(d1$model) <- d1$model=="forester-tribeca"
+is.na(d1$model) <- d1$model=="forester-wrx-xt"
+is.na(d1$model) <- d1$model=="impreza-legacy-wrx"
+is.na(d1$model) <- d1$model=="impreza-outback-sti"
+is.na(d1$model) <- d1$model=="legacy-outback"
+is.na(d1$model) <- d1$model=="legacy-sti"
+is.na(d1$model) <- d1$model=="legacy-wrx"
+is.na(d1$model) <- d1$model=="baja-forester"
+is.na(d1$model) <- d1$model=="brz-sti-wrx"
+is.na(d1$model) <- d1$model=="forester-legacy-outback"
+is.na(d1$model) <- d1$model=="forester-outback-tribeca"
+is.na(d1$model) <- d1$model=="forester-sti-wrx"
+is.na(d1$model) <- d1$model=="forester-wrx"
+is.na(d1$model) <- d1$model=="impreza-legacy"
+is.na(d1$model) <- d1$model=="impreza-sti"
+is.na(d1$model) <- d1$model=="impreza-wrx"
+is.na(d1$model) <- d1$model=="impreza-legacy"
+is.na(d1$model) <- d1$model=="legacy-outback-xt"
+is.na(d1$model) <- d1$model=="legacy-sti-xt"
+is.na(d1$model) <- d1$model=="legacy-xt"
+```
+
+## Location
+
+```{r location}
+d1 %>%
+  group_by(price) %>% 
+  filter(!is.na(price))
+
+d1 %>% 
+    mutate(crumb_area = fct_reorder(crumb_area, price, .fun='median' )) %>%
+    ggplot( aes(x=crumb_area, y=price, fill=crumb_area)) + 
+    geom_boxplot() +
+    xlab("class") +
+    theme(legend.position="none") +
+    xlab("") +
+    xlab("")
+
+
+```
+Result: Minneapolis has the lowest overall price (lowest 1st, and 3rd quartile). Missoula and Atlanta has similar overall price, with Atlanta has a slightly higher 3rd quartile, and median. 
+
+## Linear Regression
+
+```{r train, echo=FALSE}
+d1 %>% 
+  filter(!is.na(model)) %>% 
+  filter(!is.na(odometer)) %>% 
+  filter(!is.na(year))
+
+set.seed(27341)
+
+split <- initial_split(d1)
+d.train <- training(split)
+d.test <- testing(split)
+
+```
+
+
+```{r model1, echo=FALSE}
+model1 <- linear_reg() %>% 
+  set_engine("lm")
+
+fit1 <- model1 %>% 
+  fit(price ~ year + odometer, d.train)
+
+tidy(fit1)
+
+```
+
+```{r model2, echo=FALSE}
+model2 <- linear_reg() %>% 
+  set_engine("lm")
+
+fit2 <- model2 %>% 
+  fit(price ~ crumb_area + model, d.train)
+
+tidy(fit2)
+
+```
+
+```{r model3, echo=FALSE}
+model3 <- linear_reg() %>% 
+  set_engine("lm")
+
+fit3 <- model3 %>% 
+  fit(price ~ year + odometer + crumb_area + model, d.train)
+
+tidy(fit3)
+
+```
+Result: Model 3 with all the variables in it has the best fit. Year, and car model are the two most signifacnt to the overall car price, with year and location following last. 
+
+``` {r predict, echo=FALSE}
+model.tree <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+fit.tree <- model.tree %>% 
+  fit(price ~ year + odometer + crumb_area + model, d.test)
+
+d.test <- d.test %>% 
+  bind_cols(predict(fit.tree, d.test)) %>% 
+  rename(pred_tree = .pred)
+
+metrics(d.test,truth =price,estimate = pred_tree)
+
+rpart.plot(fit.tree$fit)
+
+
+```
+
+
+``` {r residuals(), echo=FALSE}
+
+fit_all <- boost_tree() %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression") %>% 
+  fit(price ~ year + odometer + crumb_area + model, d)
+
+#fit.all <- lm(price ~ year + odometer + crumb_area + model, d)
+
+par(mfrow = c(2, 2))  
+plot(fit_all) 
+res <- residuals(fit_all)
+tail(res)
+pred<-predict(fit_all)
+
+
+```
+
+
+
+
