@@ -1,0 +1,104 @@
+---
+title: "Bootstrapping Regression Metrics"
+author: "Xuho Dong"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(boot)
+library(MASS)
+```
+
+## Introduction
+
+In this assignment we use bootstrapping to estimate the standard error 
+of several regression coefficients. (We did this in class with the 
+adjusted $R^2$ statistic.) 
+
+In the past few assignments I've created most of the framework for you and 
+asked you to fill in pieces that I've left blank. This assignment is 
+different. I'll ask you use techniques we've discussed to answer some questions
+that I'll ask, but you'll be doing most of the coding and writing on your own. 
+Feel free to use this actual RMD file for your writing, but now you'll need 
+to know how to do code blocks and things like that. If you're anything like me,
+you'll find the 
+[R Markdown Cheat Sheet](https://github.com/rstudio/cheatsheets/raw/master/rmarkdown-2.0.pdf)
+invaluable. Please write this document with attention to things like headers, spelling, 
+and formatting. It need not be as polished as a formal report, but I'll ask you to revise
+it if it looks like garbage. I'm not expecting a ton of writing here, but I'd like 
+it to look nice. Remember to knit your document to HTML and commit both your RMD and HTML
+files. 
+
+## Assignment
+
+Here is what I'd like you do: 
+
+1. Begin by building a regression model using the satisfaction survey data. Have your model predict satisfaction as a function of tenure and assigned sex. This is the model we built in class. 
+
+1. Describe the results briefly. This means reporting the $R^2$, the residual standard errors, the coefficients and their standard errors. This model should have four terms, with one each for the intercept and tenure and two for assigned sex.
+
+1. Use bootstrap resampling (either the `rsample` method or the manual method) to 
+generate standard error estimates for the residual standard error and the model terms. 
+Report the 90% confidence interval for these statistics from the bootstrap replicates. 
+1. Briefly compare the values from `summary.lm` to the bootstrap replicates. 
+As always, please me know if you have any questions. Feel free to ask on Teams so that your classmates benefit from your curiosity or confusion.
+
+```{r data-input, message=F}
+
+d <- read_tsv("satisfaction_survey.txt")
+
+```
+
+```{r regression model, echo=F, message=F}
+as.factor(d$assigned_sex)
+fit_1 <- lm(satisfaction ~ tenure + assigned_sex, data = d)
+summary(fit_1)
+
+ggplot(data=d, aes(fit_1$residuals)) +
+geom_histogram(binwidth = 1, color = "black", fill = "purple4") +
+theme(panel.background = element_rect(fill = "white"),
+axis.line.x=element_line(),
+axis.line.y=element_line()) +
+ggtitle("Histogram for Model Residuals")
+
+```
+The R^2 14.39% of the satisfaction score is explanied by gender, and tenure. The residuals look pretty symmetrical around 0, suggesting that our model fits the data well. On average 1.013 unit of the response variable measurements deviate from the fitted linear model. 
+
+For every one unit increase on tenure, average satisfaction scored increase by 0.22, given the same gender is very highly significant. 
+
+If you identify as male in the company your satisfaction scored on averge are 0.55 ponits more than female given the same year of tenure is very highly significant. 
+
+If you identify as neither gender in the company your satisfaction scored on averge are 0.37 ponits less than female given the same year of tenure is very highly significant.
+
+The interception: Females who has 0 tenure on average scored 3.18 more than the rest of the group. 
+
+
+
+```{r Bootstrap, echo=F, message=F}
+
+bs <- function(formula, data, indices){
+  dt <- data[indices,]
+  fit <- lm(formula, data=dt)
+  return(coef(fit))
+} 
+results <- boot(data=d, statistic=bs, 
+   R=1000, formula=satisfaction~assigned_sex + tenure)
+
+
+results
+plot(results, index=1) #intercept 
+plot(results, index=2) #assigned_sex
+plot(results, index=3) #tenure
+
+boot.ci(results,type="bca",index=1, conf = 0.9) # intercept 
+boot.ci(results,type="bca", index=2, conf=0.9) # assigned_sex
+boot.ci(results,type="bca", index=3, conf=0.9) # tenure
+
+```
+
+We are 90% confident that the interval contains the true means of the resampling data. 
+
+The resampled valued seems to be a better fit to the dataset. The bootstrap sample is a better representation of the predictive model. 
