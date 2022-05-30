@@ -1,0 +1,132 @@
+---
+title: "Model Eval"
+author: "Xuhao Dong"
+date: "4/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse,warn.conflicts = F)
+library(tidymodels,warn.conflicts = F)
+library(here)
+library(viridis)
+library(dplyr)
+library(latticeExtra)
+d<- read_tsv("price_estimates.txt")
+```
+
+## Plot
+
+```{r plot}
+ggplot(d, aes(x=price,y=model1_est))+geom_point()+stat_smooth()
+ggplot(d, aes(x=price,y=model2_est))+geom_point()+stat_smooth()
+ggplot(d, aes(x=price,y=model3_est))+geom_point()+stat_smooth()
+ggplot(d, aes(x=price,y=model4_est))+geom_point()+stat_smooth()
+```
+
+## Accuracy
+
+RMSE: It's the root mean squared error. It indicates the absolute fit of the model to the data–how close the observed data points are to the model’s predicted values.RMSE can be interpreted as the standard deviation of the unexplained variance, and has the useful property of being in the same units as the response variable. Lower values of RMSE indicate better fit. RMSE is a good measure of how accurately the model predicts the response, and it is the most important criterion for fit if the main purpose of the model is prediction.
+
+RSQ: R-squared is a statistical measure of how close the data are to the fitted regression line. It is also known as the coefficient of determination, or the coefficient of multiple determination for multiple regression. In general, the higher the R-squared, the better the model fits your data.
+
+MAE: It's the mean absolute error. It measures the average magnitude of the errors in a set of predictions, without considering their direction. It’s the average over the test sample of the absolute differences between prediction and actual observation where all individual differences have equal weight.
+
+MAPE: It's the mean absolute percentage error. It expresses accuracy as a percentage of the error. It use to compare the fits of different time series models. Smaller values indicate a better fit. If a single model does not have the lowest values for all 3 accuracy measures, MAPE is usually the preferred measurement.
+
+SMAPE: It's the symmetric mean absolute percentge error. It is a variation on the MAPE that is calculated using the average of the absolute value of the actual and the absolute value of the forecast in the denominator.
+
+
+```{r model1, echo=FALSE}
+rmse(d,truth = price,estimate = model1_est,na_rm = TRUE )
+rsq(d,truth = price,estimate = model1_est,na_rm = TRUE )
+mae(d,truth = price,estimate = model1_est,na_rm = TRUE )
+mape(d,truth = price,estimate = model1_est,na_rm = TRUE)
+smape(d,truth = price,estimate = model1_est,na_rm = TRUE )
+smape
+```
+
+
+```{r model2, echo=FALSE}
+rmse(d,truth = price,estimate = model2_est,na_rm = TRUE )
+rsq(d,truth = price,estimate = model2_est,na_rm = TRUE )
+mae(d,truth = price,estimate = model2_est,na_rm = TRUE )
+mape(d,truth = price,estimate = model2_est,na_rm = TRUE)
+smape(d,truth = price,estimate = model2_est,na_rm = TRUE )
+
+```
+
+
+```{r model3, echo=FALSE}
+rmse(d,truth = price,estimate = model3_est,na_rm = TRUE )
+rsq(d,truth = price,estimate = model3_est,na_rm = TRUE )
+mae(d,truth = price,estimate = model3_est,na_rm = TRUE )
+mape(d,truth = price,estimate = model3_est,na_rm = TRUE)
+smape(d,truth = price,estimate = model3_est,na_rm = TRUE )
+
+```
+
+
+```{r model4, echo=FALSE}
+rmse(d,truth = price,estimate = model4_est,na_rm = TRUE )
+rsq(d,truth = price,estimate = model4_est,na_rm = TRUE )
+mae(d,truth = price,estimate = model4_est,na_rm = TRUE )
+mape(d,truth = price,estimate = model4_est,na_rm = TRUE)
+smape(d,truth = price,estimate = model4_est,na_rm = TRUE )
+
+```
+Summary: 
+
+RMSE: Model 3 has the lowest rmse value of 2415, the second lowest is model 2 with a value of 3041.704 and model 4 has the highest with 5500.806. 
+
+RSQ: Model 3 has the highest r^2 value of 0.8704136, the second highest is model 2 with a value of 0.7948002 and model 4 has the lowest with only 0.3315361 which is way off even from the second lowest model 1 with 0.7288617.
+
+MAE: Model 3 has the lowest mae value of 1478.307, the second lowest is model 2 with a value of 1834.717 and model 4 has the highest with 4111.327 and far from the second worst model 1 of 2333.013.
+
+MAPE: Model 3 has the lowest mape value of 2358.896, the second lowest is model 2 with a value of 2455.053 and model 4 has the highest with 3368.355. 
+
+SMAPE: Model 3 has the lowest mae value of 25.7005, the second lowest is model 2 with a value of 31.12858 and model 4 has the highest with 59.71636 and far from the second worst model 1 of 44.76413.
+
+In conclusion, according to all 5 measurements model 3 is the best model, and model 2 is the second best. Model 4 is the least accurate and some measure are far from the other 3. Thus model 4 is the worst model, and follows by model 1.
+
+## Best Models
+
+```{r odemeter, echo=FALSE}
+ggplot(d, aes(x=odometer, y=model3_est)) + 
+    geom_point()+
+    stat_smooth()
+ggplot(d, aes(x=odometer, y=model2_est)) + 
+    geom_point()+
+    stat_smooth()
+```
+
+Conclusion: There is no significant difference between model 2 and 3. However, model 3 has a silighly higher price with a lower odemeter read.
+```{r year, echo=FALSE}
+ggplot(d, aes(x=year, y=model2_est)) +
+ geom_line( color="#69b3a2", size=2, alpha=0.9, linetype=2) +
+  geom_smooth()
+
+ggplot(d, aes(x=year, y=model3_est)) +
+ geom_line( color="#69b3a2", size=2, alpha=0.9, linetype=2) +
+  geom_smooth()
+
+ggplot(d, aes(x=model, y=model3_est)) +
+ geom_line( color="#69b3a2", size=2, alpha=0.9, linetype=2) +
+  geom_smooth()
+  
+```
+Conclusion: The price is way higher in model3 when the year is between 2000-2010, and some are lower in the late 2010s. Model 2 has a more steady incline when year increases.
+
+```{r model, echo=FALSE}
+ggplot(d, aes(x=model, y=model3_est)) +
+ geom_line( color="#69b3a2", size=2, alpha=0.9, linetype=2) +
+  geom_smooth()
+  
+ggplot(d, aes(x=model, y=model2_est)) +
+ geom_line( color="#69b3a2", size=2, alpha=0.9, linetype=2) +
+  geom_smooth()
+  
+```
+
+Conclusion: Model 3 includes a bigger price range across all models than model 2, and especially forester-xt.  
