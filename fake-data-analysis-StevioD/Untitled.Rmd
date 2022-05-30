@@ -1,0 +1,104 @@
+---
+title: "Fake Data Analysis-NBA attendance"
+author: "Xuhao Dong"
+date: "3/3/2021"
+output: html_document
+---
+
+
+## Introduction
+
+This R-Markdown holds the Fake Date Analysis assignment. This assignment will be analyzing the fake data of NBA game attendance. Which contains six variable factors: weekdays, time, conference, home team win percentage, opponents win percentage and the number of all-stars. This assignment will take a more in-depth look into the effect of each of the six variables. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggeffects)
+library(ggplot2)
+library(TH.data)
+d <- read_tsv("Ajeckmann11/nba.txt")
+```
+
+## Model
+
+First, this analysis will fit a linear regression model and look into the relationship between attendance and weekday conference and the home team wins percentage. With an additional ANOVA test and plotted the result. 
+
+```{r lm}
+head(d)
+d %>% slice_sample(n=10)
+fit1 <- lm(attendance ~ weekday + conf + win_p,d)
+anova(fit1,test="Chisq")
+summary(fit1)
+plot(fit1)
+
+boxplot(fit1[['residuals']],main='Boxplot: Residuals',ylab='residual value')
+
+##We see that the median is close to 0. Further, the 25 and 75 percentile look approximately the same distance from 0, and the non-outlier min and max also look about the same distance from 0. All of this is good as it suggests correct model specification.
+
+ggplot(fit1,aes(y=attendance,x=weekday,color= conf, ))+geom_point()+stat_smooth(method="lm",se=FALSE)
+
+confint(fit1)
+'ggpredict(fit1,colorAsFactor = TRUE,interactive=TRUE)'
+
+```
+Results: 
+Intercept: The intercept tells us that when the game within the same conference on a Friday and the home team win percentage is zero, attendance is `r (coef(fit1)[1])`.
+SE: The standard error is the standard error of our estimate, which allows us to construct marginal confidence intervals for the estimate of that particular feature. Here we can see that the entire confidence interval for weekday, home team win percentage, and conference has a large effect on attendance. 
+R^2: 60.54%% of the attendance is explanied by weekday, win percentage, and conference. 
+F-test: Under the null hypothesis the F statistic will be F distributed with 2073 on 9990 degrees of freedom. The probability of our observed data under the null hypothesis is smaller then 2.2e-16, therefore the variables improve the model's fit. 
+
+
+## Model 2
+
+Secondly, this analysis will fit additional variables, opponent win percentage, and whether is a national tv game in the linear regression model and look into the relationship, and plot the result. 
+
+```{r model2, echo=FALSE}
+fit2 <- lm(attendance ~ weekday + conf + win_p + opp_win_p+ national_tv,d)
+anova(fit1,fit2,test="Chisq")
+summary(fit2)
+plot(fit2)
+boxplot(fit2[['residuals']],main='Boxplot: Residuals',ylab='residual value')
+
+equation1=function(x){coef(fit1)[2]*x+coef(fit1)[1]}
+equation2=function(x){coef(fit2)[2]*x+coef(fit2)[1]+coef(fit2)[3]}
+
+ggplot(fit2,aes(y=attendance,x=weekday,color=conf))+geom_point()+
+        stat_function(fun=equation1,geom="line",color=scales::hue_pal()(2)[1])+
+        stat_function(fun=equation2,geom="line",color=scales::hue_pal()(2)[2])
+
+```
+
+Results: 
+Intercept: The intercept tells us that when the game within the same conference on a Friday, the home team win percentage is zero, opponent win percentage between 40-60, and it is not an national tv game. The attendance is `r (coef(fit2)[1])`.
+SE: The standard error is the standard error of our estimate, which allows us to construct marginal confidence intervals for the estimate of that particular feature. Here we can see that the entire confidence interval for weekday, home team win percentage, conference, opponent win percentage, and whether is a national tv or not has a large effect on attendance. 
+R^2: 84.14% of the attendance is explanied by weekday, win percentage, conference, opponent win percentage, and whether is a national tv or not.
+F-test: Under the null hypothesis the F statistic will be F distributed with 1314 on 9987 degrees of freedom. The probability of our observed data under the null hypothesis is smaller then 2.2e-16, therefore the additional variables improve the model's fit. 
+
+## Model 3
+
+Lastly, the analysis will fit in all variables, time and opponent number of all stars, and build the final regression model look into the fit. Final result will also be showing. 
+```{r model3, echo=FALSE}
+
+d <- d %>% 
+  mutate(time_fct = as.factor(as.character(time)))
+
+fit3 <- lm(attendance ~ weekday + conf + win_p + opp_win_p+ national_tv + opp_all_stars + time_fct,d)
+anova(fit2,fit3,test="Chisq")
+summary(fit3)
+plot(fit3)
+boxplot(fit3[['residuals']],main='Boxplot: Residuals',ylab='residual value')
+
+equation3=function(x){coef(fit2)[2]*x+coef(fit2)[1]}
+equation4=function(x){coef(fit3)[2]*x+coef(fit3)[1]+coef(fit3)[3]}
+
+ggplot(fit3,aes(y=attendance,x=weekday,color=conf))+geom_point()+
+        stat_function(fun=equation1,geom="line",color=scales::hue_pal()(2)[1])+
+        stat_function(fun=equation2,geom="line",color=scales::hue_pal()(2)[2])
+
+```
+Results:
+Intercept: The intercept tells us that when the game within the same conference on a Friday, the home team win percentage is zero, opponent win percentage between 40-60, it is not an national tv game, opponent has zero all stars, and the game at 14:00. The attendance is `r (coef(fit3)[1])`.
+SE: The standard error is the standard error of our estimate, which allows us to construct marginal confidence intervals for the estimate of that particular feature. Here we can see that the entire confidence interval for weekday, home team win percentage, conference, opponent win percentage, whether is a national tv or not, time ,and the number of all stars has a large effect on attendance. 
+R^2: 97.7% the of the attendance is explanied by weekday, win percentage, conference, opponent win percentage, whether is a national tv or not, time, and the number of all stars. 
+F-test: Under the null hypothesis the F statistic will be F distributed with 500.2 on 9984 degrees of freedom. The probability of our observed data under the null hypothesis is smaller then 2.2e-16, therefore the additional variables improve the model's fit. 
+Summary: The adjusted R-squared value show significant improvement on the fit of the model, the more variables the input has, the better the model seems to fit. 
