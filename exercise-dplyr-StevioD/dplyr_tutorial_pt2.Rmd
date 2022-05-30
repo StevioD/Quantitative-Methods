@@ -1,0 +1,465 @@
+---
+layout: page
+title: dplyr Introduction - Parts 1 & 2
+---
+
+```{r options, echo=FALSE,message=F}
+library(tidyverse)
+library(DBI)
+library(scales)
+library(bigrquery)
+library(lubridate)
+library(dbplyr)
+```
+
+## What is dplyr?
+
+`dplyr` is a powerful R-package to transform and summarize tabular data 
+with rows and columns. For another explanation of dplyr see the 
+dplyr package vignette: [Introduction to dplyr](http://cran.rstudio.com/web/packages/dplyr/vignettes/introduction.html)
+
+In order to get the code in this notebook to run, you need to 
+run the following to install the packages that you might not have. Run this
+in your R-Studio console: `install.packages(c("tidyverse","bigrquery","lubridate", "DBI","scales","RSQLite","dbplyr"))`.
+
+Finally, [here's](https://stat545.com/dplyr-intro.html) 
+a great resource I found on `dplyr` that might useful. 
+
+## Why Is It Useful?
+
+The package contains a set of functions (or "verbs") that perform common data 
+manipulation operations such as filtering for rows, selecting 
+specific columns, re-ordering rows, 
+adding new columns and summarizing data. Basically, all of the stuff that 
+we do in SQL `dplyr` tries to make easy. 
+
+In addition, dplyr contains a useful function to perform another 
+common task which is the "split-apply-combine" concept.  We will 
+discuss that in a little bit. 
+
+## How Does It Compare To Using Base Functions R?
+
+If you are familiar with R, you are probably familiar with 
+base R functions such as split(), subset(), apply(), sapply(), 
+lapply(), tapply() and aggregate(). Compared to base functions 
+in R, the functions in `dplyr` are easier to work with, 
+are more consistent in the syntax and are targeted for 
+data analysis around data frames, instead of just vectors. 
+
+## Working with Data
+
+In this repo I've included a couple of tab-delimited text files
+from Wedge data. (Note, these were made years ago so I don't 
+vouch for their accuracy.) Let's read start by 
+reading those in and doing some basic manipulations 
+with `dplyr`. 
+
+```{r data-input}
+owner.prod.d <- read_tsv("20161107_owner_product.txt")
+prod.ym.d <- read_tsv("20161107_product_year_month_2014.txt",
+                      col_types=cols(
+                          upc=col_character()
+                          ),
+                      na=c("NULL"))
+
+# Use the amazing lubridate package to clean up some dates
+owner.prod.d$date_joined <- mdy_hm(owner.prod.d$date_joined)
+
+owner.prod.d %>% head
+```
+
+Notice the use of the `%>%` operator. We call this the "pipe" operator,
+and you can think of it as pushing the data from one side to the 
+other. In this case we "pushed" our data frame, `owner.prod.d`, through
+the `head` function, which shows us the first six rows. What we get
+out is the same thing as if you just call the function with the
+data frame as the argument: 
+
+```{r head-example}
+head(owner.prod.d)
+```
+
+There are a few other functions that are useful for showing your data:
+
+1. `tail(n=)` = Select the last `n` rows of your data set. 
+1. `sample_n(size=)` = Select `size` random rows from your data set.
+1. `sample_frac(size=)` = Select a fraction of size `size` from your data set.
+
+# Important dplyr Verbs To Remember
+
+dplyr verbs | Description
+--- | ---
+`select()` | select columns 
+`filter()` | filter rows
+`arrange()` | re-order or arrange rows
+`mutate()` | create new columns
+`summarize()` | summarize values
+`group_by()` | allows for group operations in the "split-apply-combine" concept
+
+
+# dplyr Verbs In Action
+
+The two most basic functions are `select()` and `filter()`, which selects columns and filters rows respectively. 
+
+## Selecting Columns Using `select()`
+
+Select a set of columns: the owner, `Description`, and `date_joined`. 
+
+```{r}
+holder <- owner.prod.d %>% 
+    select(owner,description,date_joined)
+head(holder)
+```
+
+To select all the columns *except* a specific column, use the "-" (subtraction) operator (also known as negative indexing):
+
+```{r}
+prod.ym.d %>% 
+    select(-description) %>% 
+    head
+```
+
+To select a range of columns by name, use the ":" (colon) operator:
+
+```{r}
+owner.prod.d %>% 
+    select(upc:organic) %>%
+    head
+```
+
+To select all columns that start with the character string "d", use the function `starts_with()`:
+
+```{r}
+owner.prod.d %>% 
+    select(starts_with("d")) %>% 
+    head
+```
+
+There's a tremendous amount of flexibility within the select statements of `dplyr`.
+Some additional options to select columns based on a specific criteria include:
+
+1. `ends_with()` = Select columns that end with a character string
+2. `contains()` = Select columns that contain a character string
+3. `matches()` = Select columns that match a regular expression
+4. `one_of()` = Select column names that are from a group of names
+
+
+## Selecting Rows Using `filter()`
+
+Filter the rows for `owner.prod.d` for owners that joined last 
+millennium. We'll take a random sample of 10 of those rows to display.
+
+```{r}
+owner.prod.d %>% 
+    filter(date_joined < "2000-01-01") %>% 
+    sample_n(10)
+```
+
+Filter the rows in `owner.prod.d` for owners that joined last 
+millennium, shopping in "PRODUCE", who spent more than \$1000 on 
+that product. 
+
+```{r}
+owner.prod.d %>% 
+    filter(date_joined < "2000-01-01",
+           dept_name=="PRODUCE",
+           total_sales > 1000) %>% 
+    sample_n(10)
+```
+
+You can use the boolean operators (e.g. >, <, >=, <=, !=, `%in%`) to create 
+the logical tests. 
+
+# Other dplyr Verbs In Action
+
+## Arrange Or Re-order Rows Using `arrange()`
+
+To arrange (or re-order) rows by a particular column, such as the 
+total spend, list the name of the column you want to arrange the rows by:
+
+```{r}
+owner.prod.d %>% arrange(total_sales) %>% head
+```
+
+Now we will select some columns from `owner.prod.d`, filter on 
+spend, arrange the rows by 
+the transactions, and then arrange the rows by total spend. Finally, 
+show the head of the final data frame:
+
+```{r}
+owner.prod.d %>% 
+    select(owner,description,dept_name,total_sales, transactions) %>% 
+    filter(100 < total_sales, total_sales < 500) %>% 
+    arrange(transactions, total_sales) %>% 
+    head
+```
+
+## Create New Columns Using `mutate()`
+
+The `mutate()` function will add new columns to the data frame. 
+Create a new column `spend_per_trans`, which is the ratio of `total_sales` 
+to `transactions`. Let's make that column (temporarily), filter by it,
+and look at the biggest values. 
+
+
+```{r}
+owner.prod.d %>% 
+    filter(total_sales > 0) %>% 
+    mutate(spend_per_trans = total_sales/transactions) %>%
+    arrange(desc(spend_per_trans)) %>% 
+    head
+```
+
+Note that we could have looked at these rows with the largest `spend_per_trans`
+by calling `tail`, but I wanted to show you the `desc` function (for "descending")
+that's available with arrange. 
+
+You can create many new columns using mutate (separated by commas). Let's
+add two. 
+
+```{r}
+owner.prod.d %>% 
+    mutate(spend_per_trans = total_sales/transactions,
+           items_per_trans = total_qty/transactions) %>%
+    head
+
+```
+
+These columns aren't permanent. This can be useful if you want to 
+make some intermediate columns but not add them to your data. But
+if you _do_ want to make them permanently part of the data frame,
+you just assign it back to itself. 
+
+```{r}
+owner.prod.d <- owner.prod.d %>% 
+    mutate(spend_per_trans = total_sales/transactions)
+
+```
+
+## Create summaries of the data frame using `summarize()`
+
+The `summarize()` function will create summary statistics for a given 
+column in the data frame such as finding the mean. For example, to 
+compute the average spend per transaction, 
+apply the `mean()` function to that column.
+
+```{r}
+owner.prod.d %>% 
+    summarize(mean_spt = mean(spend_per_trans))
+```
+
+There are many other summary statistics you could consider such `sd()`, `min()`,
+`max()`, `median()`, `sum()`, `n()` (returns the length of vector), `first()`
+(returns first value in vector), `last()` (returns last value in vector) and
+`n_distinct()` (number of distinct values in vector). 
+
+```{r}
+owner.prod.d %>% 
+    summarize(mean_spt = mean(spend_per_trans), 
+              min_spt = min(spend_per_trans),
+              max_spt = max(spend_per_trans),
+              total = n())
+```
+
+
+## Group operations using `group_by()`
+
+Now things get super cool. The `group_by()` verb is an important function 
+in dplyr. As we mentioned before it's related to concept 
+of "split-apply-combine". We literally want to split the 
+data frame by some variable (e.g. department), apply a function 
+to the individual data frames and then combine the output.   
+
+Let's do that: split the `owner.prod.d` data frame by the department name, 
+then ask for the same summary statistics as above. We expect a set of summary
+statistics for each department order. As a bonus, let's arrange by average
+transaction size.
+
+```{r}
+owner.prod.d %>% 
+    group_by(dept_name) %>% 
+    summarize(mean_spt = mean(spend_per_trans), 
+              min_spt = min(spend_per_trans),
+              max_spt = max(spend_per_trans),
+              total = n()) %>% 
+    arrange(mean_spt)
+
+```
+
+Pretty cool, right? 
+
+## Moving to DBs
+
+Okay, now here's where we see the real power of this. Let's connect to 
+our DB instead of our text files. Make sure the database `dplyr-example.db` is 
+in the same folder as this code. That database is in the zip file
+`dplyr-data` on Moodle. There's a lot of 
+documentation [here](https://db.rstudio.com/dplyr/) to help you if you have issues.
+
+```{r}
+
+# Creating the connection to the DB. Similar to 
+# a cursor. 
+con <- dbConnect(RSQLite::SQLite(),
+                 dbname=paste0("dplyr_example.db"))
+
+# Listing the tables
+dbListTables(con)
+
+# And creating connections to the two tables. 
+owner.prod.db <- tbl(con, "owner_products")
+prod.ym.db <- tbl(con,"product_year_month_2014")
+```
+
+At this point we've created a connection to the DB and used the `tbl`
+function to create connnections to two tables (that are the same as 
+the text files) in the data set. 
+
+Remember back above where we queried the data.frame `owner.prod.d` to 
+get a handful of columns and filter for `total_sales` between \$100
+and \$500? We can do almost *exactly* the same thing by just changing
+the name from `owner.prod.d` to `owner.prod.db`, the name we gave 
+to the table. 
+
+```{r}
+owner.prod.db %>% 
+    select(owner,description,dept_name,total_sales, transactions) %>% 
+    filter(100 < total_sales, total_sales < 500) %>% 
+    arrange(transactions, total_sales) %>% 
+    head
+```
+
+That's pretty cool. Another thing that's cool is that you can chain
+some `dplyr` verbs together and see the SQL that's actually running 
+under the hood. First, a simple example: 
+
+```{r}
+owner.prod.db %>% 
+    select(owner,description,dept_name,total_sales, transactions) %>% 
+    show_query()
+```
+
+And now a more complicated version: 
+
+```{r}
+owner.prod.db %>% 
+    select(owner,description,dept_name,total_sales, transactions) %>% 
+    filter(100 < total_sales, total_sales < 500) %>% 
+    arrange(transactions, total_sales) %>% 
+    show_query()
+```
+
+There are some subtleties. For instance, `owner` 12872 spends a lot. Let's
+look at how many product rows we have in the local R data.frame:
+
+```{r}
+owner.prod.d %>% 
+    filter(owner==12872) %>% 
+    nrow
+# 3048 rows
+```
+
+Now let's try the same thing in the DB version. 
+```{r}
+owner.prod.db %>% 
+    filter(owner==12872) %>% 
+    nrow
+# Returns NA
+```
+
+Why do we get an NA here? Here's a relevant section from the 
+documentation above:
+
+> The most important difference between ordinary data frames and remote database queries is that your R code is translated into SQL and executed in the database, not in R. When working with databases, dplyr tries to be as lazy as possible:
+> 
+> It never pulls data into R unless you explicitly ask for it.
+> 
+> It delays doing any work until the last possible moment: it collects together everything you want to do and then sends it to the database in one step.
+
+This allows you to test your code, but when you're ready to _work_ 
+with the data in R, then you'll use `collect` to pull the data back 
+from the database. 
+
+```{r}
+owner.prod.db %>% 
+    filter(owner==12872) %>% 
+    collect %>% # added to force data to R
+    nrow
+# Returns 3048
+```
+
+When you're done, it's best to close your connection.
+
+```{r}
+dbDisconnect(con)
+```
+
+There's a ton we can do with DBs and R. If you have a local DB
+built for the Wedge project, go ahead and see if you can 
+write a connection and a simple query using `dplyr` functions. 
+
+## And Now ... GBQ
+
+So, that was databases. All the code we had before basically works
+as written, except for some funky stuff like having to worry about 
+`collect`-ing the results. What about Google Big Query? 
+
+Let's connect to our GBQ instance and look at the tables
+that are available. This will spawn an authentication sequence
+through your browser, so make sure to allow "tidyverse" to 
+access what it needs. (Just accept all along the way.) 
+
+```{r}
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = "umt-msba",
+  dataset = "wedge_example"
+  )
+
+dbListTables(con)
+dbListFields(con,'product_year_month_2014')
+
+```
+
+Let's just repeat a bunch of the stuff we did above. First, 
+connections to the tables themselves. Exactly the same code.
+
+```{r}
+owner.prod.db <- tbl(con, "owner_products")
+prod.ym.db <- tbl(con,"product_year_month_2014")
+```
+
+Looking at the first six rows. 
+
+```{r}
+owner.prod.db %>% 
+    select(owner,description,dept_name,total_sales, transactions) %>% 
+    filter(100 < total_sales, total_sales < 500) %>% 
+    arrange(transactions, total_sales) %>% 
+    head
+```
+
+And the number of records for owner 12872, using the `collect` 
+function again. 
+
+```{r}
+owner.prod.db %>% 
+    filter(owner==12872) %>% 
+    collect %>% # added to force data to R
+    nrow
+# Returns 3048
+```
+
+When you're done, it's best to close your connection.
+
+```{r}
+dbDisconnect(con)
+```
+
+Now, connect to your own GBQ instance and write a query or 
+two against one of your Wedge tables. If you're feeling ambitious, 
+try to write one of the big queries from task 3. 
+
+
+
+
