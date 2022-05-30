@@ -1,0 +1,330 @@
+---
+title: "Survey Tests"
+author: "Xuhao Dong"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+```
+
+
+## Introduction
+
+This R-Markdown holds an assignment extending our Week 1 discussion
+of permutation tests. That lecture contains most of the background
+material for the assignment, but let me know if you have further questions.
+
+We'll begin by recapitulating the material from the lecture. Then
+I'll ask you to extend that work. 
+
+```{r data-input, message=F}
+
+d <- read_tsv("satisfaction_survey.txt")
+
+```
+
+
+### Difference in Means by Sex
+
+The satisfaction scores by assigned sex^[
+You might wonder at this use of "assigned sex" rather than the 
+more-common-in-a-business-context "gender" for this column name. 
+It's not a point that needs belaboring here, but
+"assigned sex" is a more accurate term for a male/female column than "gender". If
+you'd like to learn more about this I'd be happy to chat about it. ] 
+show lower satisfaction for non-male employees: 
+
+```{r mean-sat, echo=F, message=F}
+d %>% 
+  group_by(assigned_sex) %>% 
+  summarize(`Mean Satisfaction` = mean(satisfaction),
+            `SD Satisfaction` = sd(satisfaction),
+            N = n()) %>% 
+  rename(Gender = assigned_sex) %>% 
+  arrange(`Mean Satisfaction`) %>% 
+  knitr::kable(digits=2)
+
+```
+
+The original question from HR was whether or not the difference between males and 
+females is due to chance. 
+
+Since the survey represents a census, we shouldn't do something simple, like a t-test,
+that's designed to test for the difference between means. Instead we can test whether or 
+not the association between the "labels" of assigned sex and the "scores" of satisfaction are 
+is likely if the two columns are independent. 
+
+We can explore this question with a permutation test. The next code block performs the 
+test and visualizes the results.
+
+```{r mean-permute, cache=T}
+# Using "cache=T" means that the simulation is only run once and then stored. 
+# This is convenient for long-running calculations, but you should turn it off
+# if you make changes to the code and need the block to be re-run.
+
+get.assigned.sex.diff <- function(x){
+  male.score <- mean(x$satisfaction[x$assigned_sex=="male"])
+  female.score <- mean(x$satisfaction[x$assigned_sex=="female"])
+  return(male.score - female.score)
+}
+
+actual.value <- get.assigned.sex.diff(d) 
+
+n.sim <- 9999
+
+results <- tibble(statistic = c(actual.value,
+                                rep(NA,n.sim)))
+new.d <- d %>% 
+  select(assigned_sex,satisfaction)
+
+for(i in 2:nrow(results)){
+  new.d$assigned_sex <- sample(new.d$assigned_sex)
+  results$statistic[i] <- get.assigned.sex.diff(new.d)
+}
+
+ggplot(results,
+       aes(x=statistic)) + 
+  geom_density() + 
+  geom_vline(xintercept=actual.value,color="red") + 
+  theme_minimal() + 
+  labs(x="Male Mean Minus Female Mean",
+       y="")
+
+```
+
+As we can see from the histogram, the value we we saw, `r round(actual.value,3)`, is 
+quite extreme. The proportion of observations this extreme or more extreme than this are 
+`r mean(results$statistic >= actual.value)`. The two-sided test has the same p-value: 
+`r mean(abs(results$statistic) >= actual.value)`
+
+In the following sections, I ask you to extend this test to a few other statistics and 
+write up the answers to a few questions. 
+
+### Portion of Satisfied Employees
+
+Instead of looking at average satisfaction, let's look at employees who give a 
+score of 5, 6, or 7. Perform a permutation test estimating whether or not difference
+of this proportion (answering 5, 6, or 7) by assigned sex for males and females is likely 
+the result of chance. As above, plot the distribution of the replicates and 
+interpret the results. 
+
+```{r satisfied-prop, message=F}
+
+# to get you started, here's the initial proportion
+d %>% 
+  mutate(satisfied = if_else(satisfaction %in% c(5,6,7), 1, 0)) %>% 
+  group_by(assigned_sex) %>% 
+  summarize(`Portion Satisfied` = mean(satisfied)) %>% 
+  rename(Gender = assigned_sex) %>% # make the column header nice
+  knitr::kable(digits = 2)
+
+# Your code here
+d2<- d %>% 
+ mutate(satisfied = if_else(satisfaction %in% c(5,6,7), 1, 0))  
+  
+  
+assigned.sex.diff <- function(x){
+  m.score <- mean(x$satisfied[x$assigned_sex=="male"])
+  fm.score <- mean(x$satisfied[x$assigned_sex=="female"])
+  return(m.score - fm.score)
+}
+
+act.value <- assigned.sex.diff(d2) 
+
+n.sim2 <- 9999
+
+results2 <- tibble(statistic = c(act.value,
+                                rep(NA,n.sim2)))
+nd <- d2 %>%
+  select(assigned_sex,satisfied)
+
+for(i in 2:nrow(results2)){
+  nd$assigned_sex <- sample(nd$assigned_sex)
+  results2$statistic[i] <- assigned.sex.diff(nd)
+}
+
+ggplot(results2,
+       aes(x=statistic)) + 
+  geom_density() + 
+  geom_vline(xintercept=act.value,color="red") + 
+  theme_minimal() + 
+  labs(x="Male Mean Minus Female Mean",
+       y="")
+
+
+
+```
+
+<!-- Interpret your chart here. This is an R Markdown comment, but your text
+     should just be regular text in the document. --> 
+     
+     
+### Non-Binary Satisfaction
+
+There are 10 non-binary employees. Based on this new measure of 
+satisfaction (answering 5, 6, or 7), do we see different levels
+of satisfaction between our "neither" group and the female group? Please
+make a similar chart and interpret it.
+
+Answer: There is an insignificant different between the female group and neither group who answered 5-7. Neither group has a slighly higher scoring average. 
+
+```{r non-binary-prop, message=F}
+
+# Your code here
+
+d3<- d %>% 
+  mutate(satisfied = if_else(satisfaction %in% c(5,6,7), 1, 0))
+
+
+  diff <- function(x){
+  n.score <- mean(x$satisfied[x$assigned_sex=="neither"])
+  fm.score <- mean(x$satisfied[x$assigned_sex=="female"])
+  return(n.score - fm.score)
+}
+act.value2 <- diff(d3) 
+
+n.sim3 <- 9999
+
+results3 <- tibble(statistic = c(act.value2,
+                                rep(NA,n.sim3)))
+nd2 <- d3 %>%
+  select(assigned_sex,satisfied)
+
+for(i in 2:nrow(results3)){
+  nd2$assigned_sex <- sample(nd2$assigned_sex)
+  results3$statistic[i] <- diff(nd2)
+}
+
+ggplot(results3,
+       aes(x=statistic)) + 
+  geom_density() + 
+  geom_vline(xintercept=act.value2,color="red") + 
+  theme_minimal() + 
+  labs(x="Neither Mean Minus Female Mean",
+       y="")
+
+```
+
+
+### Satisfaction by Location
+
+The headquarters of aQuantive were in Seattle, but about half the employees 
+were in New York, the nexus of advertising in the US. The data show lower
+satisfaction for New York employees: 
+```{r loc-sat-tbl}
+d %>% 
+  group_by(location) %>% 
+  summarize(`Mean Sat.`=mean(satisfaction)) %>% 
+  knitr::kable()
+```
+
+In this section, perform a permutation test on satisfaction by location and report 
+the results. 
+
+Answer: There is a slighly different in satification between people who live in New York and Seattle. People answered lower score in New York than Seattle.  
+
+```{r location-sat, message=F}
+
+# Your code here
+d %>% 
+  group_by(location) %>% 
+ summarize(`Mean Sat.`=mean(satisfaction)) 
+
+loc.diff <- function(x){
+  nyc.score <- mean(x$satisfaction[x$location=="New York"])
+  sea.score <- mean(x$satisfaction[x$location=="Seattle"])
+  return(nyc.score - sea.score)
+}
+
+act.value3 <- loc.diff(d) 
+
+n.sim4 <- 9999
+
+results4 <- tibble(statistic = c(act.value3,
+                                rep(NA,n.sim4)))
+nd3 <- d %>% 
+  select(location,satisfaction)
+
+for(i in 2:nrow(results4)){
+  nd3$location <- sample(nd3$location)
+  results4$statistic[i] <- loc.diff(nd3)
+}
+
+ggplot(results4,
+       aes(x=statistic)) + 
+  geom_density() + 
+  geom_vline(xintercept=act.value3,color="red") + 
+  theme_minimal() + 
+  labs(x="New York Mean Minus Seattle Mean",
+       y="")
+```
+
+### Median Satisfaction
+
+The mean of the response is amenable to a t-test (if we were working with a 
+a _sample_ and not a _census_). This is because the mean of a sample has a distribution
+that can be mathematically proven to come from the $t$ distribution. There is no
+analogous result for the median, our robust measure of the center
+of a distribution. In this section, please calculate the difference in 
+medians between the male and female respondents. As before, plot the results 
+and interpret them. 
+
+Answer: The graph seems to be incorret, but male seems has a slighly higher satisfication median score than female. 
+
+```{r median-sat, message=F}
+
+# Your code here
+sex.diff2 <- function(x){
+  male.score <- median(x$satisfaction[x$assigned_sex=="male"])
+  female.score <- median(x$satisfaction[x$assigned_sex=="female"])
+  return(male.score - female.score)
+}
+
+act.value4 <- sex.diff2(d) 
+
+n.sim5 <- 9999
+
+results5 <- tibble(statistic = c(act.value4,
+                                rep(NA,n.sim5)))
+nd4 <- d %>% 
+  select(assigned_sex,satisfaction)
+
+for(i in 2:nrow(results)){
+  nd4$assigned_sex <- sample(nd4$assigned_sex)
+  results5$statistic[i] <- sex.diff2(nd4)
+}
+
+ggplot(results5,
+       aes(x=statistic)) + 
+  geom_density() + 
+  geom_vline(xintercept=actual.value,color="red") + 
+  theme_minimal() + 
+  labs(x="Male Median Minus Female Median",
+       y="")
+```
+
+
+### An Approach for Tenure
+
+You *do not* need to write any code in this section. 
+
+Imagine HR was interested in the relationship between tenure and satisfaction. 
+Typically, correlation is used to measure this type of association, 
+with the most critical assumption being that the relationship is linear. In this 
+section, describe how you could carry out a test of significance with the `cor.test`
+function. This function uses a result from almost 100 years ago that the standard
+deviation of the correlation coefficient is $\frac{r \sqrt(n-2)}{\sqrt(1-r^2)}$ that 
+relies on a mathematically sophisticated using the method of moments. 
+
+Alternatively, you could test the significance using a permutation test. In this section,
+give some detail for the key steps you'd take to test the significance of the 
+correlation coefficient. 
+
+1. Null hypothesis:  There are no relationships between assigned sex and satisfaction. 
+1. Statistic: Correlation coefficient <!-- I did this one for you! -->  
+1. Permutation step: First by analyzing the problem: the relationship between gender and satisfaction. Then choose compare the mean, and median satisfaction score by gender. Also resampled the test by compare the higher satisfaction score.<!-- What permutation step would you carry out to test that 
+                          is in accordance with the null hypothesis? --> 
+1. Final comparison: We reject the null hypothesis, there is a relationship between assigned sex and satisfaction. <!-- What comparison do you make at the end? -->                         
