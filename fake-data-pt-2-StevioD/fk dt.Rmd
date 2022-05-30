@@ -1,0 +1,63 @@
+---
+title: "Fake Data Analysis-NBA attendance"
+author: "Xuhao Dong"
+date: "3/3/2021"
+output: html_document
+---
+
+
+## Introduction
+
+This R-Markdown holds the Fake Date Analysis assignment. This assignment will be analyzing the fake data of NBA game attendance. Which contains six variable factors: weekdays, time, conference, home team win percentage, opponents win percentage and the number of all-stars. This assignment will take a more in-depth look into the effect of each of the six variables. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggeffects)
+library(ggplot2)
+library(rpart)
+library(rpart)
+library(Hmisc)
+library(rpart.plot)
+library(PRROC)
+library(rcompanion)
+library(Metrics)
+d <- read_tsv("Ajeckmann11/nba.txt")
+d <- d %>% mutate(hwp = win_p*100)
+d<- d %>%
+mutate(time_fct = as.factor(as.character(time)))
+```
+
+```{r part}
+bound <- floor((nrow(d)*0.8))
+d <- d[sample(nrow(d)),]
+d.train <- d[1:bound, ]
+d.test <- d[(bound+1):nrow(d), ]
+fit <- rpart(attendance ~ weekday + conf + hwp + opp_win_p+ national_tv + opp_all_stars + time_fct, method="anova",d.train)
+summary(fit)
+fit1<-lm(attendance ~ weekday + conf + hwp + opp_win_p+ national_tv + opp_all_stars + time_fct, d.train)
+summary(fit1)
+#Display decision tree
+plotcp(fit)
+rpart.plot(fit, uniform = TRUE)
+```
+
+```{r predit}
+pred1 <- predict(fit, d.test, type="vector")
+d.test$pred1 <- pred1
+
+```
+
+```{r accuracy}
+### Produce accuracy and error statisitcs
+rmse(d.test$attendance,pred1)
+accuracy(d.test$attendance, pred1)
+MAE(d.test$attendance, pred1)
+```
+
+Results:
+Intercept: The intercept tells us that when the game within the same conference on a Friday, the home team win percentage is zero, opponent win percentage between 40-60, it is not an national tv game, opponent has zero all stars, and the game at 14:00. The attendance is `r (coef(fit3)[1])`.
+SE: The standard error is the standard error of our estimate, which allows us to construct marginal confidence intervals for the estimate of that particular feature. Here we can see that the entire confidence interval for weekday, home team win percentage, conference, opponent win percentage, whether is a national tv or not, time ,and the number of all stars has a large effect on attendance. 
+R^2: 97.7% the of the attendance is explanied by weekday, win percentage, conference, opponent win percentage, whether is a national tv or not, time, and the number of all stars. 
+F-test: Under the null hypothesis the F statistic will be F distributed with 500.2 on 9984 degrees of freedom. The probability of our observed data under the null hypothesis is smaller then 2.2e-16, therefore the additional variables improve the model's fit. 
+Summary: The adjusted R-squared value show significant improvement on the fit of the model, the more variables the input has, the better the model seems to fit. 
