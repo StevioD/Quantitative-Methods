@@ -1,0 +1,297 @@
+---
+title: "Recipes"
+author: "Xuhao Dong"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+html_document:
+    toc: true
+    toc_depth: 6
+    number_sections: true
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+    code_download: true
+---
+
+```{r setup, include=FALSE}
+# Just turing off the conflicts because I'm tired of seeing them.
+library(tidyverse,warn.conflicts = F)
+library(tidymodels,warn.conflicts = F)
+library(lubridate,warn.conflicts = F)
+library(timeDate)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Subaru Data Recipes
+
+This assignment asks you to do a few discrete tasks using `recipes` to 
+manipulate data in R. We'll work with two data sets: 
+
+* `subaru_data.txt`: We discussed this data in class this week. This data set has
+27K rows of Craigslist car listings. The response variable we'll ultimately care
+about is `price`. There are a mix of helpful and unhelpful columns available 
+to us. 
+
+Additionally, I have a task for you to perform that requires you to work 
+with some time series information in R using `lubridate`. 
+
+```{r message=F}
+d.subaru <- read_tsv("subaru_data.txt") %>% 
+  mutate(odometer = as.numeric(odometer),
+         year = as.numeric(year))
+
+d.dates <- tibble(dt = seq(ymd("2018-01-01"),
+                             ymd("2020-12-31"),
+                             by="days")) %>% 
+  mutate(yr = year(dt),
+         mon = month(dt,label=T),
+         day = day(dt),
+         week_day = wday(dt,label=T))
+
+d.subaru <- d.subaru %>%
+  mutate(price = as.numeric(price),
+    model = as.factor(model),
+    condition = as.factor(condition))
+
+d.subaru$year <- as.integer(d.subaru$year)
+is.na(d.subaru$year) <- d.subaru$year > 2017
+
+## Funny thing here, I was trying to figure out the max odomemter read. And I looked up the Guninness World Record is acutally 3,000,000 miles. 
+d.subaru$odometer <- as.integer(d.subaru$odometer)
+is.na(d.subaru$odometer) <- d.subaru$odometer > 300000
+
+```
+
+This section asks you to build a recipe for the Subaru data to process 
+some of those columns. You'll `prep` the recipe on `d.subaru`, then
+`juice` it to get the transformed tibble out. Then I've asked you to answer 
+some questions about the results. 
+
+### Auto Models
+
+The auto models in this data set are messy. There are 
+`r length(unique(d.subaru$model))` different makes and 
+`r scales::percent(mean(is.na(d.subaru$model)))` of the values 
+are missing. Here's a messy picture: 
+
+```{r}
+ d.subaru %>% 
+  count(model) %>% 
+  mutate(model = fct_reorder(factor(model),.x=n,.fun=sum)) %>% 
+  ggplot(aes(x=n,y=model)) + 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x="Number of Rows (Log)",y="Raw Subaru Model") + 
+  scale_x_log10(label=scales::comma_format())
+
+```
+
+The top five, (Outback, Forester, Legacy, Impreza, WRX) have enough data to
+support modeling. We'd like to map others to an "Other" category. When you build
+your recipe, include a step that transforms the `model` column to do this mapping.
+
+### Odometer Data
+
+The odometer data is hand-entered, which makes it messy. We could realistically
+expect a log-relationship with mileage, since going from 10K to 20K miles is 
+different than going from 200K to 210K. Add a step to your recipe to do 
+a log-transform of this column. 
+
+### Missing Data in Year
+
+The `year` column clearly has some incorrect data in it. Additionally, 
+the `year` column is completed for `r scales::percent(mean(!is.na(d.subaru$year)))`
+of our rows. Using either the K-nearest neighbors or linear model imputation 
+methods, add a recipe step that imputes `year`. Pay attention to what covariates
+you're using to do the imputation and be prepared to justify your choices. 
+
+## Your Recipe
+
+Use the code block below to add steps to your recipe. 
+
+```{r}
+
+d.prep <- d.subaru %>% 
+  recipe() %>% 
+  # No steps yet, but yours go here. 
+  prep() %>% 
+  juice()
+
+
+```
+
+
+## Top 5
+``` {r recipe}
+count_top_five <- d.subaru %>%
+group_by(model) %>%
+filter(!is.na(model)) %>%
+count(model)
+
+count_top_five <- count_top_five %>%
+arrange(desc(n))
+
+count_top_five_num <- as.integer(count_top_five[5,2])
+
+d.prep <- d.subaru %>% 
+  recipe() %>% 
+  step_other(model,threshold = count_top_five_num, other = NA) %>% 
+  prep() %>% 
+  juice()
+
+
+d.prep <- d.subaru %>% 
+recipe(price~.) %>% 
+step_knnimpute(year,
+  role = NA,
+  trained = FALSE,
+  neighbors = 5,
+  impute_with = imp_vars(all_predictors()),
+  options = list(nthread = 1, eps = 1e-08),
+  ref_data = NULL,
+  columns = NULL,
+  skip = FALSE,
+  id = rand_id("knnimpute")
+) %>% 
+ prep() %>% 
+  juice()
+```
+
+``` {r log}
+d.prep <- d.subaru %>% 
+  recipe() %>% 
+  step_log(odometer) %>% 
+  prep() %>% 
+  juice()
+```
+
+``` {r plot}
+
+## Plot Original Data
+ d.subaru %>% 
+  count(year) %>% 
+  mutate(year = fct_reorder(factor(year),.x=n,.fun=sum)) %>% 
+  ggplot(aes(x=n,y=year))+ 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x="Number of Rows (Log)",y="Raw Subaru Year") + 
+  scale_x_log10(label=scales::comma_format())
+
+## Plot Prep Data
+ d.prep %>% 
+  count(year) %>% 
+  mutate(year = fct_reorder(factor(year),.x=n,.fun=sum)) %>% 
+  ggplot(aes(x=n,y=year))+ 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x="Number of Rows (Log)",y="Raw Subaru Year") + 
+  scale_x_log10(label=scales::comma_format())
+```
+
+## Additional Tasks
+
+With your `recipe` written, now some tasks for you: 
+
+1. Re-do the above plot of models on your prepped data. Interpret the results. 
+1. Build a plot of odometer reading in the original data versus the transformed
+data. Which observations look odd? Were any new infinite values created when you 
+took the `log`? How come? What is a quick change to the recipe step that would 
+eliminate these? 
+1. Make a scatterplot of counts by year in the original data versus in the 
+imputed data. Which years show the biggest changes? 
+
+The log number one occur to be zero, and some are way to high for the odeometer to be true.
+2004 quickly shifted to the number 4 from 7 on the scatterplot. 96 and 93 swtiched spot on the plot. The different number of row occurs to be smaller in the top and bottom. 
+
+### New Model Data
+``` {r new model}
+ d.prep %>% 
+  count(model) %>% 
+  mutate(model = fct_reorder(factor(model),.x=n,.fun=sum)) %>% 
+  ggplot(aes(x=n,y=model)) + 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x="Number of Rows (Log)",y="Raw Subaru Model") + 
+  scale_x_log10(label=scales::comma_format())
+
+```
+
+
+## Build Holiday Ranges
+
+The list found at `timeDate::listHolidays()` may be useful for this exercise. 
+Using a mix of `recipes` and `dplyr`, add the following columns to our `d.dates`
+data set: 
+
+* Add dummy variables for the major holidays in the US: Presidents' Day, 
+  MLK's Birthday, Christmas Day, Election Day, New Year's Day, Thanksgiving, 
+  Veteran's Day, Independence Day, Memorial Day, Labor Day, Christmas Eve, and
+  New Year's Eve. 
+  
+## use a for loop instead of a step function
+* Add a column called `dt_spring` that has a 1 for every day between 
+  Easter Sunday and Labor Day. Note that this isn't a canned `step_` function.
+  (I had to do that for a model once because this was a busy time for shopping
+  for spring clothing lines.)
+* Have all your columns begin with the string "dt_" so that we can see them on the 
+  plot
+  
+To get you've started and to test the plotting, I've added one holiday for you. 
+
+```{r}
+d.dates <- d.dates %>%
+   # mutate(dt_spring = case_when(between(dt, as.Date("Easter"(2018)),as.Date("USMemorialDay"(2018))) ~ 1,
+    #                             between(dt, as.Date("Easter"(2019)),as.Date("USMemorialDay"(2019))) ~ 1,
+     #                            between(dt, as.Date("Easter"(2020)),as.Date("USMemorialDay"(2020))) ~ 1))
+ mutate(dt_spring=0)
+
+
+
+  
+
+##Prep  
+prepped.date.data <- d.dates %>% 
+  recipe() %>% 
+  step_holiday(dt, holidays = c("USPresidentsDay","USMLKingsBirthday","ChristmasDay","USElectionDay", "NewYearsDay","USThanksgivingDay","USVeteransDay","USIndependenceDay","USMemorialDay","USLaborDay","ChristmasEve", "DENewYearsEve","Easter" )) %>% 
+  prep() %>% 
+  juice() %>% 
+  mutate(dt_spring=0)
+
+for(i in 1:nrow(prepped.date.data)){
+  this.easter <- prepped.date.data$dt_Easter[i]
+  this.memorial <- prepped.date.data$dt_USMemorialDay[i]
+  
+  if(this.easter==1){
+    prepped.date.data$dt_spring[i]==1
+  }
+  
+
+}
+
+
+
+timeDate::listHolidays()
+
+prepped.date.data %>% 
+  select(starts_with("dt")) %>% 
+  pivot_longer(cols=-dt,
+               names_to="holiday") %>% 
+  ggplot(aes(x=dt,y=value,color=holiday)) + 
+  geom_line() + 
+  facet_wrap(~holiday) + 
+  theme_minimal() + 
+  labs(x="Date",y="Holiday Indicator",color="Column")
+
+
+
+ 
+
+```
+
+
+## Appendix: Subaru Data Description
+
+I haven't written this yet! It's on my to-do list, though. In the meantime,
+ask questions about the data on Teams!
+
+
