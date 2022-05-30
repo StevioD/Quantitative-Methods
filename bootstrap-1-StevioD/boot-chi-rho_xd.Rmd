@@ -1,0 +1,416 @@
+---
+title: "Bootstrap Chi-Square and Correlation"
+author: "Xuhao Dong"
+html_document:
+    toc: true
+    toc_depth: 6
+    number_sections: true
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+    code_download: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(scales)
+library(here)
+library(assertthat)
+library(rsample)
+```
+
+## Introduction
+
+In this assignment we explore the (semi-) familiar statistics we learned to measure
+the association between variables. When we have two categorical variables, we use
+the $\chi^2$ test of association, which is based on the $\chi^2$ statistic. With two
+continuous variables, and some assumptions such as a linear relationship between them, 
+we use the correlation coefficient, which comes with its own statistical test. 
+
+We'll calculate these statistics in a manual fashion (something you'd _never_ 
+do in real life). We'll then use bootstrapping to estimate standard errors 
+of the statistics. We'll draw inference from those standard errors and compare
+the outcome to the tests we're more familiar with. 
+
+You might fairly ask why you need to calculate these statistics manually, when
+there are fast and reliable functions that will give you the same value in a 
+fraction of the time. We're mainly doing two things here: refreshing previous 
+knowledge and learning the bootstrapping process. It's easy to take a stats
+class that results in you vaguely knowing 
+the $\chi^2$ statistic and correlation coefficient (symbolized by $\rho$). But 
+writing the code from scratch usually locks in the ideas more firmly. 
+
+With regard to the bootstrap process, it's not too important here, as you'll see 
+below. In most cases the traditional approaches to estimating these quantities (seen in 
+`chisq.test` and `cor.test`) are fine. Here the bootstrap is like squirrel hunting with
+a bazooka. The power of the bootstrap is the ability to make good estimates of 
+standard errors in situations where you have statistics that are _not_ well behaved
+(or not well behaved with your population). See these statistics as a safe place
+to learn how to code up something like this. I'm also hopeful that you might
+be able to use a function like this in a case where the R function won't work with 
+your data for some reason.
+
+There's a secret third benefit as well. By writing code that matches the statistical
+software, you're likely to trust your own abilities more. And the bootstrap 
+method!
+
+```{r data-input, message=F}
+d <- read_tsv(paste(here(),"survey_data.txt",sep="/"))
+
+d.small <- d %>%
+  filter(region %in% c("Thurston","W WA Non Metro"),
+         engagement != "Not Engaged") %>% 
+  mutate(engagement = factor(engagement,
+                             levels=c("Engaged","Highly Engaged")))
+
+
+```
+
+## $\chi^2$ Bootstrapping
+
+The $\chi^2$ statistic is based on the counts in contingency tables. For instance
+in the Washington State financial institution survey data, we have the 
+following table of counts for region by engagement in the bank. 
+
+``` {r contingency_table_redux, echo=F}
+knitr::kable(table(d.small$region,d.small$engagement))
+```
+
+There appears to be some association, and we can use the $\chi^2$ statistic to measure it. 
+The null hypothesis assumes independence, calculates the expected values in 
+each cell, and then compares those to what we actually see. If we 
+number the cells $1, \ldots, k$, then the $\chi^2$ test starts
+by calculating
+$$
+\sum_{i=1}^{k} \frac{(O_i - E_i)^2}{E_i}
+$$
+where $O_i$ is the observed value in cell $i$ and $E_i$ is the
+expected value in that cell. This sum is normalized by the 
+number of rows and columns. (To be precise, it is divided by 
+$(r-1)\cdot(c-1)$ where $r$ is the number of rows and $c$ is 
+the number of columns. This minus-one construct is done for 
+the exact same reasons we have $l-1$ dummy variables for a 
+categorical variable that has $l$ levels.) This normalized
+sum has a theoretical distribution. In R we can just call
+the `chisq.test` function:
+``` {r chisq_test}
+chi.test <- chisq.test(table(d.small$region, d.small$engagement), correct = F)
+
+chi.test
+
+```
+
+This returned a $\chi^2$ statistic of 1.7964 and a p-value of 0.1802. This p-value is not significant. 
+
+You should find the $\chi^2$ statistic is 1.7964 here^[
+If you run this with `correct=T`, the default, then
+you'll have a $\chi^2$ statistic of 1.57. This correction, 
+which is called the 
+[Yate's continuity correction](https://en.wikipedia.org/wiki/Yates%27s_correction_for_continuity)
+involves subtracting 0.5 from the numerator of our formula's numerator. Typically
+it doesn't change the results much and there's no need for us to worry about it here.]. 
+This is the result of 
+calculating the expected value in every cell and comparing it
+to the observed values. Let's do that now. 
+
+To understand the expected cell value, we make an assumption of independence
+and assume the region and engagement proportions apply evenly across the
+other dimension. If we look at the whole table, 
+we see that `r sum(d.small$region=="Thurston")` members are in Thurston county, a
+fraction of `r round(sum(d.small$region=="Thurston")/nrow(d.small),3)`. Similarly,
+`r round(sum(d.small$engagement=="Highly Engaged")/nrow(d.small),3)` 
+are "Highly Engaged". If there were no association 
+between the columns, we would expect that you could multiply these fractions
+by the number of rows (`r nrow(d.small)`) and get 
+`r round(sum(d.small$region=="Thurston")/nrow(d.small)*sum(d.small$engagement=="Highly Engaged")/nrow(d.small)*nrow(d.small),3)` people in this cell. Instead we
+have `r sum(d.small$region=="Thurston" & d.small$engagement=="Highly Engaged")`. 
+
+Let's automate the calculation of those expected values. Write a function that
+takes two vectors (let's call them $a$ and $b$) as input and returns a table in the
+same form as `table(a,b)`, but with expected values in the cells. I have a stub
+here to help you get started. One tip, the `outer` function could save you some time here. 
+
+```{r exp-chi-sq}
+exp.chi.sq <- function(a,b){
+  raw.table <- table(a,b)
+  
+  p.row <- rowSums(raw.table)/sum(raw.table)
+  p.col <- colSums(raw.table)/sum(raw.table)
+  
+  p.tbl <- outer(p.row, p.col)
+  
+  return(p.tbl * sum(raw.table))
+}
+
+
+```
+
+```{r function-test}
+assert_that(abs(exp.chi.sq(d.small$region,d.small$engagement)[1,2]-301.3) <= 0.5,
+            msg="Your expected chi-sq function isn't returning the correct value!")
+
+# Assertions are a great way to test your code in place.
+```
+
+Once you have the expected values, you can take advantage of the fact that
+R works on matrices item by item. If you store the expected values in a matrix
+called `E` and the observed in one called `O`, then `sum((E-O)^2/E)` will give you
+the statistic. Write that function below. As before, have your function accept 
+two vectors, `a` and `b`. 
+
+```{r chi-sq-stat}
+chi.sq.stat <- function(a,b){
+  
+  E <- exp.chi.sq(a,b)
+  O <- table(a,b)
+  
+  result <- sum((E-O)^2/E)
+  
+  return(result)
+}
+
+#chi.sq.stat(d.small$region,d.small$engagement)
+
+```
+
+
+```{r function-test-2}
+# Assertions are a great way to test your code in place.
+assert_that(abs(chi.sq.stat(d.small$region,d.small$engagement)-1.8) <= 0.1,
+            msg="Your chi-sq stat function isn't returning the correct value!")
+```
+
+Now that we have the function written, let's create a bootstrap estimate of 
+the 90% confidence
+interval for our statistic (1.79) from our `d.small` data set. 
+Plot the empirical density (using `geom_density`) and
+add the actual value as a vertical line on the plot. 
+
+```{r bootstrap-estimate}
+
+n.sim <- 1000
+results <- tibble(statistic=rep(NA,n.sim))
+
+actual.value <- chi.sq.stat(d.small$region,d.small$engagement)
+
+for(i in 1:n.sim){
+  
+  new.d <- d.small %>% 
+    slice_sample(n=nrow(d.small),replace=T)
+  
+  results$statistic[i] <- chi.sq.stat(new.d$region,new.d$engagement)
+}
+
+ggplot(results,
+       aes(x=statistic)) + 
+  geom_density() + 
+  theme_bw() + 
+  labs(x="Chi-Sq Values") + 
+  geom_vline(xintercept=chi.sq.stat(d.small$region,d.small$engagement),col="red")
+
+```
+
+What do we see here? First, since our statistic is non-negative, we have a 
+characteristically right-skewed distribution. We have  
+`r round(mean(results$statistic >= chi.sq.stat(d.small$region,d.small$engagement)),3)`
+of our replicates falling to the right of our statistic of `r round(actual.value,3)`. Note that 
+we can calculate the standard error using this equation: 
+
+```{r tidy="styler"}
+sd(results$statistic)
+```
+
+Typically you'd calculate a confidence interval by taking, say, two standard errors on either
+side of the measured value. In this case that'd be an interval that started at 
+`r round(actual.value - 2*sd(results$statistic),3)` on the left and went up to 
+`r round(actual.value + 2*sd(results$statistic),3)` on the right. That's absurd, since 
+the lower bound can't be any lower than zero. The problem is, as you can see 
+from the chart, the normal distribution is a terrible approximation of this 
+curve. 
+
+A much better way to estimate that confidence interval is to use the `quantile` function
+(which you should definitely read about by typing `?quantile` at the command line). This
+function allows us to look at the value of a replicate that falls at a precise spot 
+in the distribution. For example, the median of the distribution could be 
+found by writing `median(results$statistic)` or it could be found by 
+writing `quantile(results$statistic,probs=0.5)`. The `probs` argument, which 
+can be a vector, tells R which percentiles you're interested in. 
+With either method, the result is
+`r quantile(results$statistic,probs=0.5)`, which is  close to our 
+actual value. (Since the distribution is right skewed we _know_ the mean is 
+greater than the median. It's value is `r round(quantile(results$statistic,probs=0.5),3)`.)
+Thus, we can get a sensible 90\% confidence interval by calling 
+```{r tidy="styler"}
+quantile(results$statistic,probs=c(0.05,0.95))
+```
+
+This confidence interval is quite wide, indicating a great deal of uncertainty 
+relative to the actual value. Statistics much smaller _and_ much larger are plausible. 
+
+There's no good way that I know of to turn this kind of bootstrap distribution into 
+a hypothesis test. Could this value equal zero? Sure, there's lots of probability at very
+small $\chi^2$ values. But the standard technique of turning a bootstrap resample
+into a hypothesis test won't work here. As you may recall from class, that technique 
+looks like this: 
+
+1. Use bootstrap resampling to get the distribution of your test statistic.
+1. *Shift* that distribution to be in accordance with your null hypothesis, such as 
+zero correlation. A $\chi^2$ statistic of _exactly_ zero is implausible, but you could
+hypothesize a small value such as 1. 
+1. Compare your actual value to the shifted distribution. If it's extreme, then you're 
+rejecting that null hypothesis. 
+
+The problem here is that shifting the distribution over doesn't make any sense, the 
+actual $\chi^2$ value is already small. 
+
+Now some work for you. We've been using `d.small`, which only included data on 
+two regions and two engagement levels. Repeat what we've done, but for the entire 
+data set (regions and three levels of engagement). 
+
+1. Calculate the chi-square statistic using the function you wrote above. 
+46.69496
+1. Calculate the variability of this estimate using bootstrap resampling.
+See below
+1. Plot the results.
+See below
+1. What can you infer about our measured value? 
+Bootstrapping measures variability around a statistic. Our actual value of 46.69 falls roughly in the middle of the the variability of the estimate. The 90% confidence interval for our statistic ranges from 34.15 to 79.39.
+
+
+```{r chi-sq-stat and bootstrap-estimate}
+
+chi.sq.stat(d$region, d$engagement)
+
+chisq.test(d$region, d$engagement)
+
+#updated code from John and then I modified 
+n.sim <- 1000
+results <- tibble(statistic=rep(NA,n.sim))
+
+actual.value <- chi.sq.stat(d$region,d$engagement)
+
+for(i in 1:n.sim){
+  
+  new.d <- d %>% 
+    slice_sample(n=nrow(d),replace=T)
+  
+  results$statistic[i] <- chi.sq.stat(new.d$region,new.d$engagement)
+}
+
+quantile(results$statistic,probs=c(0.05,.95))
+
+ggplot(results,
+       aes(x=statistic)) + 
+  geom_density() + 
+  theme_bw() + 
+  labs(x="Chi-Sq Values") + 
+  geom_vline(xintercept=chi.sq.stat(d$region,d$engagement),col="red")
+
+```
+
+
+## Correlation Coefficients
+
+Let's follow the example above but with the correlation coefficient. Recall that
+the definition of the correlation between $X$ and $Y$ (two random variables) is
+$$
+\rho_{X,Y} = \frac{\textrm{cov}(X,Y)}{\sigma_X \cdot \sigma_Y}
+$$
+
+We won't calculate these statistics by hand, since `cov` and `sd` work just fine for our
+purposes, but we will build our own correlation coefficient. Here are the steps
+for this section of the assignment: 
+
+1. Write a function called `my.cor` that takes as input two vectors and returns the 
+correlation coefficient between them. Verify that you get the same results as the `cor` function.
+1. Use this function to calculate the correlation between age and progressivism. 
+1. Use bootstrap resampling to estimate the standard error of this correlation coefficient.
+1. Does the measured correlation appear significant? 
+1. Compare your results to the output from `cor.test`.
+
+## Results
+
+Our actual correlation value is -0.042. The 90% confidence interval for this statistic is between -.07 to -.01. The measured correlation tells us that there is a negative correlation between age and progressivism: as age increases, progressivism declines. These values of -7% to -1% are relatively close to 0. This tell us that the correlation between age and progressivism is not very significant. 
+
+```{r correlation-coefficient}
+#write function  that takes as input two vectors, returns the correlation coefficient between them
+  my.cor <- function(a,b){
+    numerator <- cov(a,b)
+    denominator <- sd(a)*sd(b)
+    result <- numerator/denominator
+    return(result)
+  }
+
+#a <- d$age
+#b <- d$progressivism
+#rm(a,b)
+
+#Use this function to calculate the correlation between age and progressivism
+my.cor(d$age, d$progressivism)
+
+#Verify that you get the same results as the `cor` 
+cor(d$age, d$progressivism)
+
+# Use bootstrap resampling to estimate the standard error of this correlation coefficient. 
+
+n.sim <- 1000
+results <- tibble(statistic=rep(NA,n.sim))
+
+actual.value <- cor(d$age, d$progressivism)
+
+for(i in 1:n.sim){
+  
+  new.d <- d %>% 
+    slice_sample(n=nrow(d),replace=T)
+  
+  results$statistic[i] <- cor(new.d$age,new.d$progressivism)
+}
+
+ggplot(results,
+       aes(x=statistic)) + 
+  geom_density() + 
+  theme_bw() + 
+  labs(x="Chi-Sq Values") + 
+  geom_vline(xintercept=cor(d$age,d$progressivism),col="red")
+
+#Compare your results to the output from `cor.test`.
+cor.test(d$age, d$progressivism)
+
+quantile(results$statistic,probs=c(0.05,0.95))
+
+```
+
+## Appendix: Full Data Description
+A financial institution in Washington has become concerned that their current membership base is not well-aligned with their corporate values. Through that concern they realized that don't actually understand their membership's values very well. They surveyed 2,421 members to shed light on the issue. 
+
+The heart of the survey was the Moral Foundations Theory of Jonathan Haidt. Members were surveyed on the Moral Foundations Questionnaire, which you should take so you understand the test. Survey respondents were scored on the five foundations as well as a single-number summary, Progressivism. 
+
+The financial institution values Localism, Sustainability, and Education. These aspects of member's values were assessed in the survey as well. Localism and Sustainability used validated scales and thus can be summarized via a single score, where higher values indicate greater support for the values. Education is summarized by the following three questions, which we do not have evidence can be combined into a single score:
+
+* In general, public schools provide a better education than private schools.
+* Public school teachers are underpaid.
+* Experience is more important than education in determining success in life.
+These questions were evaluated on a 1 to 6 scale where 1 indicated "Strongly Disagree" and 6 indicated "Strongly Agree". 
+
+Finally, we have information on the member that can be used to understand variation in their values. 
+
+The data consists of the following columns:
+
+* ID: a unique identifier for the survey respondent.
+* age: the age of the respondent.
+* gender: gender was evaluated with robust scale and collapsed into male/female/other for those whose gender identity was not male or female.
+* engagement: three categories of engagement with the financial institution.
+* mem.edu: the self-reported education level of the member with the following scale:
+* zip: the member zip code. 
+* channel: how the member joined the financial institution. Options are "Loan" if they joined via an auto loan, "Branch" if they joined at a branch and other for online or unknown. 
+* progressivism/harm/fair/in.group/authority/purity: The MFQ results.
+* account.age: the age of the member's account, in years. 
+* region: The region of Washington the member lives in. May be easier to work with than zip.
+* public.sector: has the person ever been a public employee?
+* sustainability/localism: Scores on the validated scales. Higher values indicate greater support for the value.
+* pub.greater.priv/experience.more.important/teachers.underpaid: The responses to the education questions above. 
+* main.focal.value: Respondents were asked, "Below is a list of broad areas to which people often dedicate their volunteer or philanthropic efforts. From this list, please select the most important to you. If an area of particular importance is missing, please let us know about it in the space for 'other.'" This column holds the respondents' answer to that question. 
+* support.of.focal.value: Respondents were given an opportunity to indicate how they supported their focal value. Those responses were collapsed into a single score, where a higher value indicates more support.
+
+
